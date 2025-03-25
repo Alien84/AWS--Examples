@@ -1,0 +1,8 @@
+# List the start up tasks. Learn more: https://www.gitpod.io/docs/configure/workspaces/tasks
+tasks:
+  - name: aws-cli
+    before:
+      # Installing or updating to the latest version of the AWS CLI on Mac
+      curl "https://awscli.amazonaws.com/AWSCLIV2.pkg" -o "AWSCLIV2.pkg"
+      sudo installer -pkg AWSCLIV2.pkg -target /
+
