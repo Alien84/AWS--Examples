@@ -2,7 +2,7 @@
 tasks:
   - name: aws-cli
     env:
-      AWS_CLI_AUTO_PROMPT=on-partial
+      AWS_CLI_AUTO_PROMPT: on-partial
     before:
       # Installing or updating to the latest version of the AWS CLI on Mac
       cd /workspace
