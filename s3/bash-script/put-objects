@@ -1,0 +1,26 @@
+echo "== put-object"
+
+# Exit immediately if any command returns a non-zero status.
+set -e
+
+# Check if the first argument is provided
+if [ -z "$1" ]; then
+  echo "There needs be a bucket name."
+  exit 1
+fi
+
+# Check for filename
+if [ -z "$2" ]; then
+  echo "There needs be a filename."
+  exit 1
+fi
+
+BUCKET_NAME=$1
+FILENAME=$2
+
+OBJECT_KEY=$(basename "$FILENAME")
+
+aws s3api put-object \
+--bucket $BUCKET_NAME \
+--body $FILENAME \
+--key $OBJECT_KEY
