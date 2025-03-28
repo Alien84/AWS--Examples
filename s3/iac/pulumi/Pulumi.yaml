@@ -1,0 +1,11 @@
+name: s3-smple-sdk
+description: A python script for creating s3 bucket
+runtime:
+  name: python
+  options:
+    toolchain: pip
+    virtualenv: venv
+config:
+  pulumi:tags:
+    value:
+      pulumi:template: aws-python
