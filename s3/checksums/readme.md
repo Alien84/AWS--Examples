@@ -23,10 +23,31 @@ md5sum myfile.txt
 aws s3 cp myfile.txt s3://checksums-examples-aa-001
 aws s3api head-object --bucket checksums-examples-aa-001 --key myfile.txt
 
-# Leys upload a file withh different type of checksum
 
-sudo apt-get install rhash -y
-rhash --crc32 --simple myfile.txt
-# d620111a  myfile.txt
+# Lets upload a file withh different type of checksum
+
+# Option 1: Using Python (boto3) with CRC32
+
+# Option 2: Using aws cli
+# Calculate CRC32 and encode in base64
+crc32=$(python3 -c "import zlib; print('%08X' % (zlib.crc32(open('myfile.txt', 'rb').read()) & 0xFFFFFFFF
+))")
+crc32_b64=$(echo $crc32 | xxd -r -p | base64)
+
+crc32_b64=$(echo "ibase=16; $crc32" | bc | awk '{printf "%08X", $1}' | xxd -r -p | base64)
+
+# Upload with metadata
+aws s3api put-object \
+    --bucket checksums-examples-aa-001 \
+    --key myfile.txt \
+    --body myfile.txt \
+    --metadata crc32=$crc32_b64
+
+# To Verify After Upload
+aws s3api head-object --bucket checksums-examples-aa-001 --key myfile.txt
+
+# Change files and see how chechsums and etag change
+
+
 
 
