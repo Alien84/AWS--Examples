@@ -7,3 +7,8 @@ aws s3api put-object --bucket metadata-bucket-aa01 --key myfile.txt --body myfil
 
 # Get metadata through head object
 aws s3api head-object --bucket metadata-bucket-aa01 --key myfile.txt
+
+
+# Cleanup
+aws s3 rm s3://metadata-bucket-aa01/myfile.txt
+aws   s3 rb s3://metadata-bucket-aa01/
