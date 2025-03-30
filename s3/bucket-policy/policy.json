@@ -1,0 +1,27 @@
+{
+    "Statement": [
+       {
+          "Effect": "Allow",
+          "Principal": "*",
+          "Action": "s3:GetObject",
+          "Resource": "arn:aws:s3:::amzn-s3-demo-bucket/*"
+       },
+       {
+          "Effect": "Deny",
+          "Principal": "*",
+          "Action": "s3:GetObject",
+          "Resource": "arn:aws:s3:::test-mybucket-aa01/*"
+       },
+       {
+          "Effect": "Allow",
+          "Principal": {
+             "AWS": "arn:aws:iam::123456789012:root"
+          },
+          "Action": [
+             "s3:DeleteObject",
+             "s3:PutObject"
+          ],
+          "Resource": "arn:aws:s3:::amzn-s3-demo-bucket/*"
+       }
+    ]
+ }
