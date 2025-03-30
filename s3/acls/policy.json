@@ -1,0 +1,16 @@
+{
+    "Grants": [
+      {
+        "Grantee": {
+          "DisplayName": "ali",
+          "EmilAddress": "string",
+          "Type": "CanonicalUser",
+          "ID": "OTHER_ACCOUNT_CANONICAL_ID"
+        },
+        "Permission": "FULL_CONTROL"
+      }
+    ],
+    "Owner": {
+      "ID": "YOUR_ACCOUNT_CANONICAL_ID"
+    }
+  }
