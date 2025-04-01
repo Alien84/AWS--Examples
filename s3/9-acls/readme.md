@@ -1,6 +1,6 @@
 # Create a new bucket
 
-aws s3api create-bucket --bucket acl-mybucket-aa01 --regio eu-west-2 
+aws s3api create-bucket --bucket acl-mybucket-aa01 --region us-east-1 
 
 # Turn off block public access for ACLs, default is false for all generated buckets
 aws s3api put-public-access-block \
