@@ -16,10 +16,11 @@ aws sts get-caller-identity --profile
 Make sure this user don't have access to s3
 aws s3 ls --profile sts
 
-# Create a Role
+# Create a assume role
 We need to create a role that will access to a new resource via CloudFormation
-
-# Use new user credntial and assume role
 
 chmod u+x ./bin/deploy
 ./bin/deploy
+
+# Use new user credntial and assume role
+
