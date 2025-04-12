@@ -18,8 +18,9 @@ Resources:
         Statement:
           - Effect: Allow
             Principal:
-              Service:
-                - s3.amazonaws.com
+              AWS: "arn:aws:iam::555576841436:user/sts-machine-user"
+              # Service:
+              #   - s3.amazonaws.com
             Action:
               - 'sts:AssumeRole'
       Path: /
@@ -31,6 +32,7 @@ Resources:
               - Effect: Allow
                 Action: '*'
                 Resource: [
+                  !Sub "arn:aws:s3:::*",
                   !Sub "arn:aws:s3:::${BucketName}",
                   !Sub "arn:aws:s3:::${BucketName}/*"
                 ]
