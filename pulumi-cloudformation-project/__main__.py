@@ -1,56 +1,34 @@
-"""Amazon CloudWatch: Monitoring and Observability of AWS Resources with Pulumi"""
-
-"""
-Amazon CloudWatch is a monitoring and observability service provided by AWS that gives you actionable insights into your applications, 
-responds to system-wide performance changes, optimizes resource utilization, and gets a unified view of operational health.
-"""
+"""AWS CloudFormation: Managing Infrastructure as Code with Pulumi"""
 
 import pulumi
-from pulumi_aws import cloudwatch
-
-# Create a metric alarm
-cpu_alarm = cloudwatch.MetricAlarm('cpu-high-alarm',
-    comparison_operator='GreaterThanThreshold',
-    evaluation_periods=1,
-    metric_name='CPUUtilization',
-    namespace='AWS/EC2',
-    period=60,
-    statistic='Average',
-    threshold=80.0,
-    alarm_description='Alarm when server CPU exceeds 80%',
-    dimensions={'InstanceId': 'i-1234567890abcdef0'},  # replace with your instance ID
-    actions_enabled=True)
-
-# Create a dashboard
-dashboard = cloudwatch.Dashboard('my-dashboard',
-    dashboard_name='MyDashboard',
-    dashboard_body=pulumi.Output.all(cpu_alarm.arn).apply(lambda arn: json.dumps({
-        "widgets": [
-            {
-                "type": "metric",
-                "x": 0,
-                "y": 0,
-                "width": 12,
-                "height": 6,
-                "properties": {
-                    "metrics": [
-                        ["AWS/EC2", "CPUUtilization", "InstanceId", "i-1234567890abcdef0"]
-                    ],
-                    "period": 300,
-                    "stat": "Average",
-                    "region": "us-west-2",
-                    "title": "EC2 Instance CPU Utilization"
-                }
-            }
-        ]
-    })))
-
-# Export the dashboard name
-pulumi.export('dashboard_name', dashboard.dashboard_name)
+from pulumi_aws import cloudformation
 
 """
+This script sets up a basic CloudFormation stack that creates a private S3 bucket. 
+You can replace the inline template with a path to a file containing a more complex CloudFormation template if needed.
+"""
+
+# Assume you have a CloudFormation template as a JSON or YAML file
+# For this example, we'll define a simple template inline
+cloudformation_template = """
+Resources:
+  MyBucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      AccessControl: Private
+"""
+
+# Create a CloudFormation stack
+stack = cloudformation.Stack('my-stack',
+    template_body=cloudformation_template)
+
+# Export the stack ID
+pulumi.export('stack_id', stack.id)
+
+"""
+Best Practices and Additional Configurations
 Consider implementing best practices such as:
-- Comprehensive Coverage: Set up alarms for all critical metrics across your AWS services.
-- Notification Actions: Configure actions for alarms, such as notifications through Amazon SNS.
-- Logging: Integrate CloudWatch with AWS CloudTrail for comprehensive logging of API calls.
+- Template Validation: Before deploying, validate your CloudFormation templates to catch and fix any syntax or logical errors.
+- Change Sets: Use CloudFormation change sets to preview how proposed changes to a stack might impact your running resources.
+- Nested Stacks: For complex environments, use nested stacks to manage related resources in a more modular and maintainable way.
 """
