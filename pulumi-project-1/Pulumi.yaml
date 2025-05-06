@@ -1,0 +1,10 @@
+name: pulumi-project-1
+description: A python Pulumi program with full system design
+runtime:
+  name: python
+  options:
+    toolchain: poetry
+config:
+  pulumi:tags:
+    value:
+      pulumi:template: python

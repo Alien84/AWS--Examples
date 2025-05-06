@@ -137,6 +137,7 @@ vpc = aws.ec2.get_vpc(
     )
 pulumi.export("vpc_id", vpc.id)
 
+
 ## --- Create a security group
 secgroup = ec2.SecurityGroup(
     'secgroup',
@@ -146,7 +147,7 @@ secgroup = ec2.SecurityGroup(
         'protocol': 'tcp', 
         'from_port': 22, 
         'to_port': 22, 
-        'cidr_blocks': ['0.0.0.0/0'] # IP range that’s allowed — in this case, EVERYONE
+        'cidr_blocks': ['86.191.39.248/32'] # IP range that’s allowed — ["0.0.0.0/0"] for EVERYONE
         }
     ],
     egress=[{
@@ -163,5 +164,6 @@ instance = ec2.Instance(
     instance_type='t2.micro',
     security_groups=[secgroup.name],
     ami=amazon_ami.id,
+    associate_public_ip_address=True,
     key_name='my-keypair' # The key_name refers to an SSH key pair that lets you safely log into your EC2 instance.
     )

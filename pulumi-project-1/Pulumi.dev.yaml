@@ -1,0 +1,4 @@
+config:
+  aws:region: eu-west-2
+  pulumi-project-1:trustedCidrs:
+    - 86.191.39.248/32

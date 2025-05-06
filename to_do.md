@@ -1,14 +1,39 @@
-## Additional Configurations
+SG
 
-*- Elastic IP: *To attach an Elastic IP to your instance, you can define an `ec2.Eip` resource and associate it with your instance.
-*- Detailed Monitoring: *Enable detailed monitoring on your instance for better insights into its performance.
-*- Auto-scaling:* Set up an auto-scaling group to automatically adjust the number of instances based on traffic or other metrics.
-
-This guide provides a foundational approach to deploying an Amazon EC2 instance using Pulumi. It covers setting up a basic instance, but you can extend this with more complex configurations, multiple instances, or integrate with other AWS services like ELB (Elastic Load Balancing) and RDS (Relational Database Service).
+* How to **use Pulumi Config** for ports and CIDRs.
+* How to  **separate private vs public rules** .
+* How to **combine security groups** (e.g., web + db SG).
 
 
-S3
-**Step 5: Additional Features and Security Settings
-** *- Bucket Policies:* Enhance the security by defining bucket policies directly within your Pulumi code.
-*- Versioning: *Enable versioning to keep multiple versions of an object in the same bucket.
-*- Cross-Region Replication:* Set up replication to automatically replicate objects across buckets in different AWS Regions.
+System Design
+
+
+| **Add a domain name** | Easier access (e.g.,`chat.example.com`) | Use Route 53 or your domain provider |
+| --------------------------- | ----------------------------------------- | ------------------------------------ |
+
+| **Set up HTTPS** | Secure your app traffic | Certbot + NGINX |
+| ---------------------- | ----------------------- | --------------- |
+
+| **Use a database** | For more real-world apps | Postgres, DynamoDB, etc. |
+| ------------------------ | ------------------------ | ------------------------ |
+
+| **Create an AMI image** | Backup your current server | AWS Console > Create AMI |
+| ----------------------------- | -------------------------- | ------------------------ |
+
+| **Scale later** | Handle more traffic | EC2 Auto Scaling or ECS/Fargate |
+| --------------------- | ------------------- | ------------------------------- |
+
+| **Monitoring and alerting** | Detect crashes, CPU spikes | AWS CloudWatch |
+| --------------------------------- | -------------------------- | -------------- |
+
+
+
+### Use Systems Manager (SSM) Instead
+
+If you want secure access without any open SSH ports, consider switching to  **AWS Systems Manager (SSM) Session Manager** :
+
+* No SSH needed
+* No security group ingress rules
+* Works via IAM + SSM agent installed on instance
+
+Would you like me to show how to configure EC2 for SSM Session Manager access instead?

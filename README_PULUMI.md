@@ -1,3 +1,10 @@
+# Install Pulumi
+
+```
+curl -fsSL https://get.pulumi.com | sh  # For macOS/Linux
+# For Windows, download from https://www.pulumi.com/docs/get-started/install/
+```
+
 # Create a project:
 
 ```
