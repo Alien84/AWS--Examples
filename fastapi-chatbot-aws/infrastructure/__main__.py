@@ -169,7 +169,21 @@ db_secrets = create_ssm_secrets(
 # Export the secret name for reference
 pulumi.export("db_param_path", "/chatbot/db")
 
-user_data = user_data_template.replace("${DB_PARAM_PATH}", "/chatbot/db")
+# If you're using aws.ec2.Instance, you do not need to Base64 encode user_data manually. Pulumi does it for you.
+# If You ARE Using a Launch Template (e.g., for Auto Scaling), AWS expects Base64, but you need to manually wrap it into an Output
+
+# user_data = user_data_template.replace("${DB_PARAM_PATH}", "/chatbot/db")
+user_data = pulumi.Output.secret(
+    user_data_template.replace("${DB_PARAM_PATH}", "/chatbot/db")
+)
+user_data_base64 = user_data.apply(
+    lambda data: base64.b64encode(data.encode("utf-8")).decode("utf-8")
+)
+
+# Generate a hash of the user_data to trigger changes
+user_data_hash = user_data.apply(
+    lambda data: hashlib.sha256(data.encode('utf-8')).hexdigest()
+)
 
 
 # Create an IAM role for EC2 instances
@@ -233,6 +247,37 @@ role_policy_attachment = aws.iam.RolePolicyAttachment(
     policy_arn=secrets_policy.arn,
 )
 
+# Create a CloudWatch log group
+log_group = aws.cloudwatch.LogGroup(
+    "chatbot-logs",
+    name="/aws/ec2/chatbot",
+    retention_in_days=30,
+)
+
+# Update IAM policy to allow CloudWatch Logs access
+logs_policy = aws.iam.Policy(
+    "logs-policy",
+    policy=json.dumps({
+        "Version": "2012-10-17",
+        "Statement": [{
+            "Effect": "Allow",
+            "Action": [
+                "logs:CreateLogStream",
+                "logs:PutLogEvents",
+                "logs:DescribeLogStreams",
+            ],
+            "Resource": "*",
+        }],
+    }),
+)
+
+# Attach the logs policy to the role
+logs_policy_attachment = aws.iam.RolePolicyAttachment(
+    "logs-policy-attachment",
+    role=ec2_role.name,
+    policy_arn=logs_policy.arn,
+)
+
 # Create an instance profile
 instance_profile = aws.iam.InstanceProfile(
     "instance-profile",
@@ -248,8 +293,21 @@ instance_profile = aws.iam.InstanceProfile(
 #     user_data=user_data,
 # )
 
-# Generate a hash of the user_data to trigger changes
-user_data_hash = hashlib.sha256(user_data.encode('utf-8')).hexdigest()
+
+# Create an SNS topic for notifications
+notification_topic = aws.sns.Topic(
+    "notification-topic",
+    name="chatbot-notifications",
+)
+
+# Create an email subscription
+email_subscription = aws.sns.TopicSubscription(
+    "email-subscription",
+    topic=notification_topic.arn,
+    protocol="email",
+    endpoint="aknari.ali.com@gmail.com",  # Replace with your email
+)
+
 
 if not auto_scaling:
     # Single instance creation:  Uncomment out if you comment out auto-scaling part
@@ -277,11 +335,176 @@ if not auto_scaling:
             depends_on=list(db_secrets.values()), # NOTE Pulumi will correctly wait for all the SSM parameters to be created before launching the EC2 instance and running user_data.
             delete_before_replace=True  # Ensures Pulumi destroys and recreates the instance
         ),
+        # Enable detailed monitoring (1-minute intervals instead of 5)
+        monitoring=True,
         tags={
             "Name": "chatbot-server",
             "UserDataHash": user_data_hash  # This tag forces instance replacement when user_data changes
             },
     )
+
+    # Create a CloudWatch dashboard
+    dashboard = aws.cloudwatch.Dashboard(
+        "chatbot-dashboard",
+        dashboard_name="ChatbotDashboard",
+        dashboard_body=pulumi.Output.all(instance.id, database["instance"].id).apply(
+            lambda args: json.dumps({
+                "widgets": [
+                    {
+                        "type": "metric",
+                        "x": 0,
+                        "y": 0,
+                        "width": 12,
+                        "height": 6,
+                        "properties": {
+                            "metrics": [
+                                ["AWS/EC2", "CPUUtilization", "InstanceId", args[0]]
+                            ],
+                            "period": 300,
+                            "stat": "Average",
+                            "region": aws.config.region,
+                            "title": "EC2 Instance CPU",
+                        },
+                    },
+                    {
+                        "type": "metric",
+                        "x": 12,
+                        "y": 0,
+                        "width": 12,
+                        "height": 6,
+                        "properties": {
+                            "metrics": [
+                                ["AWS/EC2", "NetworkIn", "InstanceId", args[0]],
+                                ["AWS/EC2", "NetworkOut", "InstanceId", args[0]]
+                            ],
+                            "period": 300,
+                            "stat": "Average",
+                            "region": aws.config.region,
+                            "title": "Network Traffic",
+                        },
+                    },
+                    {
+                        "type": "metric",
+                        "x": 0,
+                        "y": 6,
+                        "width": 12,
+                        "height": 6,
+                        "properties": {
+                            "metrics": [
+                                ["CWAgent", "mem_used_percent", "InstanceId", args[0]]
+                            ],
+                            "period": 300,
+                            "stat": "Average",
+                            "region": aws.config.region,
+                            "title": "Memory Usage",
+                        },
+                    },
+                    {
+                        "type": "metric",
+                        "x": 12,
+                        "y": 6,
+                        "width": 12,
+                        "height": 6,
+                        "properties": {
+                            "metrics": [
+                                ["CWAgent", "disk_used_percent", "InstanceId", args[0], "path", "/"]
+                            ],
+                            "period": 300,
+                            "stat": "Average",
+                            "region": aws.config.region,
+                            "title": "Disk Usage",
+                        },
+                    },
+                    {
+                        "type": "log",
+                        "x": 0,
+                        "y": 12,
+                        "width": 24,
+                        "height": 6,
+                        "properties": {
+                            "query": "SOURCE '/aws/ec2/chatbot' | fields @timestamp, @message\n| sort @timestamp desc\n| limit 100",
+                            "region": aws.config.region,
+                            "title": "Recent Logs",
+                            "view": "table"
+                        }
+                    }
+                ],
+            })
+        ),
+    )
+
+    # Create CloudWatch alarms for for the single EC2 instance
+    high_cpu_alarm = aws.cloudwatch.MetricAlarm(
+        "high-cpu-alarm",
+        comparison_operator="GreaterThanThreshold",
+        evaluation_periods=2,
+        metric_name="CPUUtilization",
+        namespace="AWS/EC2",
+        period=300,
+        statistic="Average",
+        threshold=70,
+        alarm_description="Alarm when CPU exceeds 70%",
+        dimensions={"InstanceId": instance.id},
+        # alarm_actions=["notification_topic.arn"],  # Replace with your SNS topic ARN
+    )
+
+    low_cpu_alarm = aws.cloudwatch.MetricAlarm(
+        "low-cpu-alarm",
+        comparison_operator="LessThanThreshold",
+        evaluation_periods=2,
+        metric_name="CPUUtilization",
+        namespace="AWS/EC2",
+        period=300,
+        statistic="Average",
+        threshold=30,
+        alarm_description="Scale down when CPU < 30%",
+        dimensions={"InstanceId": instance.id},
+        # alarm_actions=["notification_topic.arn"],
+    )
+
+    # Create a CloudWatch alarm for RDS high CPU
+    rds_cpu_alarm = aws.cloudwatch.MetricAlarm(
+        "rds-cpu-alarm",
+        comparison_operator="GreaterThanThreshold",
+        evaluation_periods=2,
+        metric_name="CPUUtilization",
+        namespace="AWS/RDS",
+        period=300,
+        statistic="Average",
+        threshold=80,
+        alarm_description="Alarm when RDS CPU exceeds 80%",
+        dimensions={"DBInstanceIdentifier": database["instance"].id},
+        # alarm_actions=["notification_topic.arn"],
+    )
+
+    memory_alarm = aws.cloudwatch.MetricAlarm(
+        "memory-alarm",
+        comparison_operator="GreaterThanThreshold",
+        evaluation_periods=2,
+        metric_name="mem_used_percent",
+        namespace="CWAgent",
+        period=300,
+        statistic="Average",
+        threshold=85,
+        alarm_description="Alarm when memory usage exceeds 85%",
+        dimensions={"InstanceId": instance.id},
+        # alarm_actions=["notification_topic.arn"],  # Replace with your SNS topic ARN
+    )
+
+    disk_alarm = aws.cloudwatch.MetricAlarm(
+        "disk-alarm",
+        comparison_operator="GreaterThanThreshold",
+        evaluation_periods=2,
+        metric_name="disk_used_percent",
+        namespace="CWAgent",
+        period=300,
+        statistic="Average",
+        threshold=85,
+        alarm_description="Alarm when disk usage exceeds 85%",
+        dimensions={"InstanceId": instance.id, "path": "/"},
+        # alarm_actions=["notification_topic.arn"],  # Replace with your SNS topic ARN
+    )
+    
 
 
     # Export the instance's public IP and DNS
@@ -313,11 +536,16 @@ else:
         instance_type=instance_type,
         key_name=key_pair.key_name,
         vpc_security_group_ids=[web_sg.id],
-        user_data=user_data.apply(
-            lambda data: base64.b64encode(data.encode("utf-8")).decode("utf-8")
-        ),
+        user_data=user_data_base64,
         iam_instance_profile=aws.ec2.LaunchTemplateIamInstanceProfileArgs(
             name=instance_profile.name,
+        ),
+        monitoring=aws.ec2.LaunchTemplateMonitoringArgs(
+            enabled=True,  # Enable detailed monitoring
+        ),
+        opts=pulumi.ResourceOptions(
+            depends_on=list(db_secrets.values()),
+            delete_before_replace=True  # Ensures Pulumi destroys and recreates the template
         ),
         tag_specifications=[
             aws.ec2.LaunchTemplateTagSpecificationArgs(
@@ -325,6 +553,7 @@ else:
                 tags={
                     "Name": "chatbot-server",
                     "Environment": "production",
+                    "UserDataHash": user_data_hash,
                 },
             ),
         ],
@@ -438,6 +667,9 @@ else:
             id=launch_template.id,
             version="$Latest",
         ),
+        opts=pulumi.ResourceOptions(
+            depends_on=[launch_template] + list(db_secrets.values()),
+        ),
         tags=[
             aws.autoscaling.GroupTagArgs(
                 key="Name",
@@ -501,8 +733,127 @@ else:
         dimensions={"AutoScalingGroupName": auto_scaling_group.name},
     )
 
+    # Create a CloudWatch alarm for RDS high CPU
+    rds_cpu_alarm = aws.cloudwatch.MetricAlarm(
+        "rds-cpu-alarm",
+        comparison_operator="GreaterThanThreshold",
+        evaluation_periods=2,
+        metric_name="CPUUtilization",
+        namespace="AWS/RDS",
+        period=300,
+        statistic="Average",
+        threshold=80,
+        alarm_description="Alarm when RDS CPU exceeds 80%",
+        dimensions={"DBInstanceIdentifier": database["instance"].id},
+    )
+
+    # Create a CloudWatch alarm for high 5xx errors
+    error_alarm = aws.cloudwatch.MetricAlarm(
+        "error-alarm",
+        comparison_operator="GreaterThanThreshold",
+        evaluation_periods=1,
+        metric_name="HTTPCode_ELB_5XX_Count",
+        namespace="AWS/ApplicationELB",
+        period=300,
+        statistic="Sum",
+        threshold=10,
+        alarm_description="Alarm when 5XX errors exceed 10 in 5 minutes",
+        dimensions={"LoadBalancer": load_balancer.arn_suffix},
+    )
+
+
+    # Create a CloudWatch dashboard
+    dashboard = aws.cloudwatch.Dashboard(
+        "chatbot-dashboard",
+        dashboard_name="ChatbotDashboard",
+        dashboard_body=pulumi.Output.all(
+            auto_scaling_group.name, 
+            database["instance"].id,
+            load_balancer.arn_suffix
+            ).apply(lambda args: json.dumps({
+                "widgets": [
+                    {
+                        "type": "metric",
+                        "x": 0,
+                        "y": 0,
+                        "width": 12,
+                        "height": 6,
+                        "properties": {
+                            "metrics": [
+                                ["AWS/EC2", "CPUUtilization", "AutoScalingGroupName", args[0]]
+                            ],
+                            "period": 300,
+                            "stat": "Average",
+                            "region": aws.config.region,
+                            "title": "EC2 Instance CPU",
+                        },
+                    },
+                    {
+                        "type": "metric",
+                        "x": 12,
+                        "y": 0,
+                        "width": 12,
+                        "height": 6,
+                        "properties": {
+                            "metrics": [
+                                ["AWS/RDS", "CPUUtilization", "DBInstanceIdentifier", args[1]]
+                            ],
+                            "period": 300,
+                            "stat": "Average",
+                            "region": aws.config.region,
+                            "title": "RDS Instance CPU",
+                        },
+                    },
+                    {
+                        "type": "metric",
+                        "x": 0,
+                        "y": 6,
+                        "width": 12,
+                        "height": 6,
+                        "properties": {
+                            "metrics": [
+                                ["AWS/ApplicationELB", "RequestCount", "LoadBalancer", args[2]]
+                            ],
+                            "period": 300,
+                            "stat": "Sum",
+                            "region": aws.config.region,
+                            "title": "Load Balancer Request Count",
+                        },
+                    },
+                    {
+                        "type": "metric",
+                        "x": 12,
+                        "y": 6,
+                        "width": 12,
+                        "height": 6,
+                        "properties": {
+                            "metrics": [
+                                ["AWS/ApplicationELB", "TargetResponseTime", "LoadBalancer", args[2]]
+                            ],
+                            "period": 300,
+                            "stat": "Average",
+                            "region": aws.config.region,
+                            "title": "Load Balancer Response Time",
+                        },
+                    },
+                    {
+                        "type": "log",
+                        "x": 0,
+                        "y": 12,
+                        "width": 24,
+                        "height": 6,
+                        "properties": {
+                            "query": "SOURCE '/aws/ec2/chatbot' | fields @timestamp, @message\n| sort @timestamp desc\n| limit 100",
+                            "region": aws.config.region,
+                            "title": "Recent Logs",
+                            "view": "table"
+                        }
+                    }
+                ],
+            })
+        ),
+    )
+
     # Update exports
     pulumi.export("load_balancer_dns", load_balancer.dns_name)
     pulumi.export("application_url", pulumi.Output.concat("http://", load_balancer.dns_name))
-
-

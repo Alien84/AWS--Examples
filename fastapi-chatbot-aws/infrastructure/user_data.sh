@@ -199,18 +199,59 @@ EOF
 chmod +x /opt/chatbot/test_connection.py
 sudo bash -c "set -a && source /etc/profile.d/db_env.sh && set +a  && python3 /opt/chatbot/test_connection.py 2>> /opt/chatbot/logs/ssm_fetch.log"
 
+# Add logging configuration to FastAPI app
+cat << 'EOF' > /opt/chatbot/logging_config.py
+import logging
+import sys
+from logging.handlers import RotatingFileHandler
 
+def setup_logging():
+    # Create logger
+    logger = logging.getLogger("chatbot")
+    logger.setLevel(logging.INFO)
+    
+    # Create file handler
+    file_handler = RotatingFileHandler(
+        "/opt/chatbot/app.log",
+        maxBytes=10485760,  # 10MB
+        backupCount=5
+    )
+    
+    # Create console handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    
+    # Create formatter
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    
+    # Set formatter
+    file_handler.setFormatter(formatter)
+    console_handler.setFormatter(formatter)
+    
+    # Add handlers
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+    
+    return logger
+EOF
 # Clone the application repository (in a real scenario)
 # git clone https://github.com/your-username/fastapi-chatbot.git /opt/chatbot
 
 # Copy application code
 cat <<EOF > /opt/chatbot/main.py
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Request
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy import create_engine, Column, Integer, String, Text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 import os
+import time
+from logging_config import setup_logging
+
+# Setup logging
+logger = setup_logging()
 
 # Get database credentials from environment variables
 DB_HOST = os.getenv("DB_HOST")
@@ -246,6 +287,24 @@ class ChatResponse(BaseModel):
 
 app = FastAPI(title="Chatbot API")
 
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Add request logging middleware
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start_time = time.time()
+    response = await call_next(request)
+    process_time = time.time() - start_time
+    logger.info(f"{request.method} {request.url.path} - Status: {response.status_code} - Duration: {process_time:.4f}s")
+    return response
+
 # Dependency to get the database session
 def get_db():
     db = SessionLocal()
@@ -256,25 +315,145 @@ def get_db():
 
 @app.get("/")
 def read_root():
+    logger.info("Root endpoint accessed")
     return {"status": "online", "message": "Welcome to the Chatbot API"}
 
 @app.post("/chat", response_model=ChatResponse)
 def chat(message: Message, db: Session = Depends(get_db)):
+    logger.info(f"Chat request received with content: {message.content}")
+
     # Simple echo response for now
     response = f"You said: {message.content}"
     
     # Store message in database
-    db_message = MessageRecord(content=message.content, response=response)
-    db.add(db_message)
-    db.commit()
+    try:
+        db_message = MessageRecord(content=message.content, response=response)
+        db.add(db_message)
+        db.commit()
+        logger.info(f"Message saved to database with ID: {db_message.id}")
+    except Exception as e:
+        logger.error(f"Database error: {str(e)}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Database error")
     
     return ChatResponse(response=response)
 
 @app.get("/history")
 def get_history(db: Session = Depends(get_db)):
-    messages = db.query(MessageRecord).all()
-    return {"history": [{"content": msg.content, "response": msg.response} for msg in messages]}
+    logger.info("History endpoint accessed")
+    try:
+        messages = db.query(MessageRecord).all()
+        logger.info(f"Retrieved {len(messages)} messages from database")
+        return {"history": [{"content": msg.content, "response": msg.response} for msg in messages]}
+    except Exception as e:
+        logger.error(f"Database error when retrieving history: {str(e)}")
+        raise HTTPException(status_code=500, detail="Database error")
+
+@app.get("/health")
+def health_check():
+    logger.info("Health check endpoint accessed")
+    return {"status": "healthy"}
 EOF
+
+# Setup CloudWatch agent configuration
+cat << EOF > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+{
+    "agent": {
+        "metrics_collection_interval": 60,
+        "run_as_user": "root"
+    },
+    "logs": {
+        "logs_collected": {
+            "files": {
+                "collect_list": [
+                    {
+                        "file_path": "/var/log/messages",
+                        "log_group_name": "/aws/ec2/chatbot",
+                        "log_stream_name": "{instance_id}/syslog",
+                        "retention_in_days": 30
+                    },
+                    {
+                        "file_path": "/var/log/nginx/access.log",
+                        "log_group_name": "/aws/ec2/chatbot",
+                        "log_stream_name": "{instance_id}/nginx-access",
+                        "retention_in_days": 30
+                    },
+                    {
+                        "file_path": "/var/log/nginx/error.log",
+                        "log_group_name": "/aws/ec2/chatbot",
+                        "log_stream_name": "{instance_id}/nginx-error",
+                        "retention_in_days": 30
+                    }
+                ]
+            }
+        }
+    },
+    "metrics": {
+        "metrics_collected": {
+            "cpu": {
+                "measurement": [
+                    "cpu_usage_idle",
+                    "cpu_usage_iowait",
+                    "cpu_usage_user",
+                    "cpu_usage_system"
+                ],
+                "metrics_collection_interval": 60,
+                "totalcpu": false
+            },
+            "mem": {
+                "measurement": [
+                    "mem_used_percent"
+                ],
+                "metrics_collection_interval": 60
+            },
+            "disk": {
+                "measurement": [
+                    "used_percent"
+                ],
+                "metrics_collection_interval": 60,
+                "resources": [
+                    "/"
+                ]
+            },
+            "diskio": {
+                "measurement": [
+                    "io_time",
+                    "write_bytes",
+                    "read_bytes",
+                    "writes",
+                    "reads"
+                ],
+                "metrics_collection_interval": 60,
+                "resources": [
+                    "*"
+                ]
+            },
+            "swap": {
+                "measurement": [
+                    "swap_used_percent"
+                ],
+                "metrics_collection_interval": 60
+            },
+            "netstat": {
+                "measurement": [
+                    "tcp_established",
+                    "tcp_time_wait"
+                ],
+                "metrics_collection_interval": 60
+            },
+            "processes": {
+                "measurement": [
+                    "running",
+                    "sleeping",
+                    "dead"
+                ],
+                "metrics_collection_interval": 60
+            }
+        }
+    }
+}
+EOF
+
 
 # Create a service file for systemd
 cat <<EOF > /etc/systemd/system/chatbot.service
@@ -296,11 +475,15 @@ EOF
 # Set permissions
 chown -R ec2-user:ec2-user /opt/chatbot
 
-# Start and enable FastAPI service
 systemctl daemon-reload
+
+# Start the CloudWatch agent
+systemctl enable amazon-cloudwatch-agent
+systemctl start amazon-cloudwatch-agent
+
+# Start and enable FastAPI service
 systemctl enable chatbot
 systemctl start chatbot
-
 
 # Configure Nginx
 cat <<EOF > /etc/nginx/conf.d/chatbot.conf
