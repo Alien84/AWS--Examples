@@ -113,7 +113,7 @@ EOF
 chmod +x /opt/chatbot/get_secrets.py
 
 # Create a script to set up environment variables
-cat << EOF > /opt/chatbot/setup_env.sh
+cat << 'EOF' > /opt/chatbot/setup_env.sh
 #!/bin/bash
 
 # Get database credentials from SSM Parameter Store
@@ -121,12 +121,6 @@ python3 /opt/chatbot/get_secrets.py ${DB_PARAM_PATH} > /tmp/db_env.sh 2> /opt/ch
 sudo mv /tmp/db_env.sh /etc/profile.d/db_env.sh
 
 sudo chmod +x /etc/profile.d/db_env.sh
-EOF
-
-chmod +x /opt/chatbot/setup_env.sh
-
-# Execute the setup script
-/opt/chatbot/setup_env.sh
 
 # Verify the environment file was created
 if [ -f /etc/profile.d/db_env.sh ]; then
@@ -135,6 +129,76 @@ if [ -f /etc/profile.d/db_env.sh ]; then
 else
     echo "ERROR: Environment file was not created!" >> /opt/chatbot/logs/ssm_fetch.log
 fi
+
+EOF
+
+chmod +x /opt/chatbot/setup_env.sh
+/opt/chatbot/setup_env.sh
+
+cat << 'EOF' > /opt/chatbot/test_db.sh
+#!/bin/bash
+
+# Source environment variables if they exist
+if [ -f /etc/profile.d/db_env.sh ]; then
+    set -a  # Automatically export all variables
+    source /etc/profile.d/db_env.sh
+    set +a
+fi
+
+echo "Testing connection to: $DB_HOST:$DB_PORT/$DB_DBNAME as $DB_USERNAME" >> /opt/chatbot/logs/ssm_fetch.log
+
+# Use PGPASSWORD to avoid password prompt
+PGPASSWORD=$DB_PASSWORD psql -h $DB_HOST -p $DB_PORT -U $DB_USERNAME -d $DB_DBNAME -c "SELECT version();" 
+
+if [ $? -eq 0 ]; then
+    echo "Connection successful!" >> /opt/chatbot/logs/ssm_fetch.log
+else
+    echo "Connection failed!" >> /opt/chatbot/logs/ssm_fetch.log
+    echo "Please check your database credentials and network settings." >> /opt/chatbot/logs/ssm_fetch.log
+    exit 1
+fi
+EOF
+
+chmod +x /opt/chatbot/test_db.sh
+/opt/chatbot/test_db.sh
+
+sudo cat <<EOF > /opt/chatbot/test_connection.py
+import os
+import psycopg2
+import sys
+
+# Get database credentials from environment variables
+db_host = os.getenv("DB_HOST")
+db_port = os.getenv("DB_PORT", "5432")
+db_name = os.getenv("DB_DBNAME")
+db_user = os.getenv("DB_USERNAME")
+db_pass = os.getenv("DB_PASSWORD")
+
+print(f"Testing connection to {db_user}@{db_host}:{db_port}/{db_name}", file=sys.stderr)
+
+try:
+    conn = psycopg2.connect(
+        host=db_host,
+        port=db_port,
+        dbname=db_name,
+        user=db_user,
+        password=db_pass
+    )
+    print("Connection successful!", file=sys.stderr)
+    cursor = conn.cursor()
+    cursor.execute("SELECT version();")
+    db_version = cursor.fetchone()
+    print(f"Database version: {db_version[0]}", file=sys.stderr)
+    conn.close()
+except Exception as e:
+    print(f"Error connecting to database: {e}", file=sys.stderr)
+    sys.exit(1)
+EOF
+
+# Run the test script with the environment variables
+chmod +x /opt/chatbot/test_connection.py
+sudo bash -c "set -a && source /etc/profile.d/db_env.sh && set +a  && python3 /opt/chatbot/test_connection.py 2>> /opt/chatbot/logs/ssm_fetch.log"
+
 
 # Clone the application repository (in a real scenario)
 # git clone https://github.com/your-username/fastapi-chatbot.git /opt/chatbot

@@ -52,14 +52,13 @@ ssh -i your-key.pem ec2-user@your-instance-ip
 psql --version
 
 # Connect to the PostgreSQL database
-psql -h your-db-endpoint -p 542 -U dbadmin -d chatbot
+psql -h your-db-endpoint -p 5432 -U dbadmin -d chatbot
 
 # Enter the password when prompted (from Pulumi output). Note that password is saved in /etc/environment (Look at user_data.sh)
 
 # Query the messages table
 SELECT * FROM messages;
 ```
-
 
 **Monitor the Application Logs**
 
@@ -70,22 +69,20 @@ The easiest way to view startup logs:
 3. Select your instance
 4. Click on "Actions" > "Monitor and troubleshoot" > "Get system log"
 
-SH into your instance and check these specific log files, i exists:
+SSH into your instance and check these specific log files, i exists:
 
 ssh -i your-key.pem ec2-user@your-instance-ip
 
 ```
-/var/log/cloud-init-output.log
-/var/log/cloud-init.log
-/var/log/user-data-script.log (created by a line on top of the user_data.sh)
-```
-
-```
-
-
 # Check application logs
-sudo journalctl -u chatbot.service
+sudo journalctl -u chatbot.service -n 100 --no-pager
 
+sudo cat /var/log/cloud-init-output.log
+sudo cat /var/log/cloud-init.log
+sudo cat /var/log/user-data-script.log (created by a line on top of the user_data.sh)
+```
+
+```
 # Nginx logs
 sudo cat /var/log/nginx/error.log
 sudo cat /var/log/nginx/access.log

@@ -1,4 +1,5 @@
 import json
+import hashlib
 import pulumi
 import pulumi_aws as aws
 import pulumi_tls as tls
@@ -247,6 +248,8 @@ instance_profile = aws.iam.InstanceProfile(
 #     user_data=user_data,
 # )
 
+# Generate a hash of the user_data to trigger changes
+user_data_hash = hashlib.sha256(user_data.encode('utf-8')).hexdigest()
 
 if not auto_scaling:
     # Single instance creation:  Uncomment out if you comment out auto-scaling part
@@ -270,8 +273,14 @@ if not auto_scaling:
         vpc_security_group_ids=[web_sg.id],
         iam_instance_profile=instance_profile.name,
         user_data=user_data,
-        opts=pulumi.ResourceOptions(depends_on=list(db_secrets.values())), # NOTE Pulumi will correctly wait for all the SSM parameters to be created before launching the EC2 instance and running user_data.
-        tags={"Name": "chatbot-server"},
+        opts=pulumi.ResourceOptions(
+            depends_on=list(db_secrets.values()), # NOTE Pulumi will correctly wait for all the SSM parameters to be created before launching the EC2 instance and running user_data.
+            delete_before_replace=True  # Ensures Pulumi destroys and recreates the instance
+        ),
+        tags={
+            "Name": "chatbot-server",
+            "UserDataHash": user_data_hash  # This tag forces instance replacement when user_data changes
+            },
     )
 
 
