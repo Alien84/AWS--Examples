@@ -19,6 +19,9 @@ touch README.md requirements.txt
 cd infrastructure
 pulumi new aws-python -y
 
+Initialize a Pulumi environment
+pulumi stack init dev
+
 **Deploying the FastAPI App to EC2**
 
 In order to check if the app and nginx running on ec2, you need ssh it and then ue follwing commands:
