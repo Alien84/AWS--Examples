@@ -24,8 +24,6 @@ System Design
 | **Monitoring and alerting** | Detect crashes, CPU spikes | AWS CloudWatch |
 | --------------------------------- | -------------------------- | -------------- |
 
-
-
 ### 5.2 Advanced Options and Optimizations
 
 **Goal:** Explore advanced AWS services and optimizations for your application.
@@ -65,3 +63,19 @@ Here are some advanced improvements to consider:
    * Implement multi-region deployments
    * Set up cross-region replication for S3 and databases
    * Create disaster recovery runbooks
+
+
+
+install pre-commmit and st-it up for ci cd
+
+
+### 2. **Environment-Specific Protection Rules**
+
+Set up GitHub Environment protection rules:
+
+1. Go to your repository → Settings → Environments
+2. Create environments like `dev-destroy`, `staging-destroy`
+3. Add protection rules:
+   * **Required reviewers** : Add team members who must approve
+   * **Wait timer** : Add a delay (e.g., 5 minutes) for thinking time
+   * **Deployment branches** : Restrict to specific branches
